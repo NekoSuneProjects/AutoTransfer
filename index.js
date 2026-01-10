@@ -174,7 +174,7 @@ async function transfer(client, from, key, to, amount, symbol) {
 // ---------------- WORKERS ----------------
 async function hiveWorker({ name, key, modes }) {
   const pk = PrivateKey.fromString(key);
-  console.log(`?? Hive worker started: ${name}`);
+  console.log(`Hive worker started: ${name}`);
 
   while (true) {
     try {
@@ -218,7 +218,7 @@ async function hiveWorker({ name, key, modes }) {
 
 async function steemWorker({ name, key }) {
   const pk = dsteem.PrivateKey.fromString(key);
-  console.log(`?? Steem worker started: ${name}`);
+  console.log(`Steem worker started: ${name}`);
 
   while (true) {
     try {
@@ -254,7 +254,7 @@ async function steemWorker({ name, key }) {
 
 async function blurtWorker({ name, key }) {
   const pk = dblurt.PrivateKey.fromString(key);
-  console.log(`?? Blurt worker started: ${name}`);
+  console.log(`Blurt worker started: ${name}`);
 
   while (true) {
     try {
