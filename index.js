@@ -116,22 +116,22 @@ const BLURT_ACCOUNTS = parseSimpleAccounts("BLURT_ACCOUNTS");
 // ---------------- HIVE ENGINE ----------------
 async function getEngineBalances(account) {
   const payload = {
-    jsonrpc: "2.0",
-    method: "find",
-    params: {
-      contract: "tokens",
-      table: "balances",
-      query: { account },
-      limit: 1000
+    "jsonrpc": "2.0",
+    "method": "find",
+    "params": {
+      "contract": "tokens",
+      "table": "balances",
+      "query": { account },
+      "limit": 1000
     },
-    id: 1
+    "id": 1
   };
 
   let lastErr;
   for (const url of ENGINE_APIS) {
     try {
       const res = await retryAsync(
-        () => axios.post(url, payload),
+        () => axios.post(url, payload, { headers: { "Content-Type": "application/json" } }),
         `Hive Engine ${url}`
       );
       return res.data.result || [];
