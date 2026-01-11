@@ -258,24 +258,30 @@ async function hiveWorker({ name, key }) {
   while (true) {
     try {
       const { hive, hbd } = await getHiveBalances(name);
+      const hiveSend = hive - HIVE_RESERVE;
+      const hbdSend = hbd - HBD_RESERVE;
+      console.log(
+        `HIVE ${name} native: balance HIVE=${hive.toFixed(3)} HBD=${hbd.toFixed(3)}; ` +
+        `queue HIVE=${Math.max(0, hiveSend).toFixed(3)} HBD=${Math.max(0, hbdSend).toFixed(3)}`
+      );
 
-      if (hive > HIVE_RESERVE)
+      if (hiveSend > 0)
         await transfer(
           hiveClient,
           name,
           pk,
           process.env.DEST_HIVE_NATIVE,
-          hive - HIVE_RESERVE,
+          hiveSend,
           "HIVE"
         );
 
-      if (hbd > HBD_RESERVE)
+      if (hbdSend > 0)
         await transfer(
           hiveClient,
           name,
           pk,
           process.env.DEST_HIVE_NATIVE,
-          hbd - HBD_RESERVE,
+          hbdSend,
           "HBD"
         );
     } catch (e) {
@@ -293,14 +299,27 @@ async function hiveEngineWorker({ name, key }) {
   while (true) {
     try {
       if (!process.env.DEST_HIVE_TOKENS) {
-        console.warn(`HIVE ${name} tokens: DEST_HIVE_TOKENS not set`);
+        console.warn(`HIVE ENGINE ${name} tokens: DEST_HIVE_TOKENS not set`);
       }
       const tokens = await getEngineBalances(name);
+      if (!tokens.length) {
+        console.log(`HIVE ${name} tokens: no balances found`);
+      } else {
+        const summary = tokens
+          .map(t => {
+            const liquid = Number(t.balance || 0);
+            const stake = Number(t.stake || 0);
+            const pending = Number(t.pendingUnstake || 0);
+            return `${t.symbol}=${liquid.toFixed(3)} staked=${stake.toFixed(3)} pending=${pending.toFixed(3)}`;
+          })
+          .join(" | ");
+        console.log(`HIVE ENGINE ${name} tokens: ${summary}`);
+      }
       const queue = buildEngineQueue(tokens, process.env.DEST_HIVE_TOKENS);
-      console.log(`HIVE ${name} tokens: found ${tokens.length} balances, queued ${queue.length} ops`);
+      console.log(`HIVE ENGINE ${name} tokens: found ${tokens.length} balances, queued ${queue.length} ops`);
       if (queue.length) await processEngineQueue(name, pk, queue);
     } catch (e) {
-      console.error(`HIVE ${name} tokens:`, formatError(e));
+      console.error(`HIVE ENGINE ${name} tokens:`, formatError(e));
     }
 
     await delay(MAIN_LOOP_DELAY);
