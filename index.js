@@ -136,7 +136,6 @@ async function getEngineBalances(account) {
         () => axios.post(url + "/contracts", payload, { headers: { "Content-Type": "application/json" } }),
         `Hive Engine ${url + "/contracts"}`
       );
-      console.log(res.data)
       return res.data.result || [];
     } catch (err) {
       lastErr = err;
