@@ -101,19 +101,6 @@ function splitList(env) {
 }
 
 // ---------------- PARSERS ----------------
-function parseHiveAccounts() {
-  return splitList("HIVE_ACCOUNTS").map(entry => {
-    const [name, rest] = entry.split("=");
-    const [key, ...modes] = rest.split("|");
-
-    return {
-      name,
-      key,
-      modes: new Set(modes.map(m => m.toLowerCase()))
-    };
-  });
-}
-
 function parseSimpleAccounts(env) {
   return splitList(env).map(entry => {
     const [name, key] = entry.split("=");
@@ -121,7 +108,8 @@ function parseSimpleAccounts(env) {
   });
 }
 
-const HIVE_ACCOUNTS  = parseHiveAccounts();
+const HIVE_ACCOUNTS  = parseSimpleAccounts("HIVE_ACCOUNTS");
+const HIVE_ENGINE_ACCOUNTS = parseSimpleAccounts("HIVE_ENGINE_ACCOUNTS");
 const STEEM_ACCOUNTS = parseSimpleAccounts("STEEM_ACCOUNTS");
 const BLURT_ACCOUNTS = parseSimpleAccounts("BLURT_ACCOUNTS");
 
@@ -263,47 +251,52 @@ async function transfer(client, from, key, to, amount, symbol) {
 }
 
 // ---------------- WORKERS ----------------
-async function hiveWorker({ name, key, modes }) {
+async function hiveWorker({ name, key }) {
   const pk = PrivateKey.fromString(key);
-  console.log(`Hive worker started: ${name}`);
+  console.log(`Hive native worker started: ${name}`);
 
   while (true) {
-    if (modes.has("hive")) {
-      try {
-        const { hive, hbd } = await getHiveBalances(name);
+    try {
+      const { hive, hbd } = await getHiveBalances(name);
 
-        if (hive > HIVE_RESERVE)
-          await transfer(
-            hiveClient,
-            name,
-            pk,
-            process.env.DEST_HIVE_NATIVE,
-            hive - HIVE_RESERVE,
-            "HIVE"
-          );
+      if (hive > HIVE_RESERVE)
+        await transfer(
+          hiveClient,
+          name,
+          pk,
+          process.env.DEST_HIVE_NATIVE,
+          hive - HIVE_RESERVE,
+          "HIVE"
+        );
 
-        if (hbd > HBD_RESERVE)
-          await transfer(
-            hiveClient,
-            name,
-            pk,
-            process.env.DEST_HIVE_NATIVE,
-            hbd - HBD_RESERVE,
-            "HBD"
-          );
-      } catch (e) {
-        console.error(`HIVE ${name} native:`, formatError(e));
-      }
+      if (hbd > HBD_RESERVE)
+        await transfer(
+          hiveClient,
+          name,
+          pk,
+          process.env.DEST_HIVE_NATIVE,
+          hbd - HBD_RESERVE,
+          "HBD"
+        );
+    } catch (e) {
+      console.error(`HIVE ${name} native:`, formatError(e));
     }
 
-    if (modes.has("hivetoken")) {
-      try {
-        const tokens = await getEngineBalances(name);
-        const queue = buildEngineQueue(tokens, process.env.DEST_HIVE_TOKENS);
-        if (queue.length) await processEngineQueue(name, pk, queue);
-      } catch (e) {
-        console.error(`HIVE ${name} tokens:`, formatError(e));
-      }
+    await delay(MAIN_LOOP_DELAY);
+  }
+}
+
+async function hiveEngineWorker({ name, key }) {
+  const pk = PrivateKey.fromString(key);
+  console.log(`Hive engine worker started: ${name}`);
+
+  while (true) {
+    try {
+      const tokens = await getEngineBalances(name);
+      const queue = buildEngineQueue(tokens, process.env.DEST_HIVE_TOKENS);
+      if (queue.length) await processEngineQueue(name, pk, queue);
+    } catch (e) {
+      console.error(`HIVE ${name} tokens:`, formatError(e));
     }
 
     await delay(MAIN_LOOP_DELAY);
@@ -375,6 +368,9 @@ async function blurtWorker({ name, key }) {
 // ---------------- START ----------------
 if (process.env.ENABLE_HIVE === "true")
   HIVE_ACCOUNTS.forEach(hiveWorker);
+
+if (process.env.ENABLE_HIVE_ENGINE === "true")
+  HIVE_ENGINE_ACCOUNTS.forEach(hiveEngineWorker);
 
 if (process.env.ENABLE_STEEM === "true")
   STEEM_ACCOUNTS.forEach(steemWorker);
