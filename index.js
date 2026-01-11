@@ -133,8 +133,8 @@ async function getEngineBalances(account) {
   for (const url of ENGINE_APIS) {
     try {
       const res = await retryAsync(
-        () => axios.post(url, payload, { headers: { "Content-Type": "application/json" } }),
-        `Hive Engine ${url}`
+        () => axios.post(url + "/contracts", payload, { headers: { "Content-Type": "application/json" } }),
+        `Hive Engine ${url + "/contracts"}`
       );
       console.log(res.data)
       return res.data.result || [];
