@@ -388,15 +388,19 @@ async function blurtWorker({ name, key }) {
   }
 }
 
-// ---------------- START ----------------
-if (process.env.ENABLE_HIVE === "true")
-  HIVE_ACCOUNTS.forEach(hiveWorker);
+function start() {
+  // ---------------- START ----------------
+  if (process.env.ENABLE_HIVE === "true")
+    HIVE_ACCOUNTS.forEach(hiveWorker);
 
-if (process.env.ENABLE_HIVE_ENGINE === "true")
-  HIVE_ENGINE_ACCOUNTS.forEach(hiveEngineWorker);
+  if (process.env.ENABLE_HIVE_ENGINE === "true")
+    HIVE_ENGINE_ACCOUNTS.forEach(hiveEngineWorker);
 
-if (process.env.ENABLE_STEEM === "true")
-  STEEM_ACCOUNTS.forEach(steemWorker);
+  if (process.env.ENABLE_STEEM === "true")
+    STEEM_ACCOUNTS.forEach(steemWorker);
 
-if (process.env.ENABLE_BLURT === "true")
-  BLURT_ACCOUNTS.forEach(blurtWorker);
+  if (process.env.ENABLE_BLURT === "true")
+    BLURT_ACCOUNTS.forEach(blurtWorker);
+}
+
+start();
