@@ -115,17 +115,19 @@ const BLURT_ACCOUNTS = parseSimpleAccounts("BLURT_ACCOUNTS");
 
 // ---------------- HIVE ENGINE ----------------
 async function getEngineBalances(account) {
-  const payload = {
-    jsonrpc: "2.0",
-    method: "find",
-    params: {
-      contract: "tokens",
-      table: "balances",
-      query: { account },
-      limit: 1000
+  const payload = JSON.stringify({
+  "jsonrpc": "2.0",
+  "method": "find",
+  "params": {
+    "contract": "tokens",
+    "table": "balances",
+    "query": {
+      "account": account
     },
-    id: 1
-  };
+    "limit": 1000
+  },
+  "id": 1
+});
 
   let lastErr;
   for (const url of ENGINE_APIS) {
