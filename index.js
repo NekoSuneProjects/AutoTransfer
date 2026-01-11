@@ -6,7 +6,7 @@ const dsteem = require("dsteem");
 const dblurt = require("dblurt");
 
 // ---------------- CONFIG ----------------
-const ENGINE_API = "https://api.hive-engine.com/rpc/contracts";
+const ENGINE_API_DEFAULT = "https://api.hive-engine.com/rpc/contracts";
 
 const MAIN_LOOP_DELAY = 3 * 60 * 1000; // 3 minutes
 const COOLDOWN_MS = 5 * 60 * 1000;
@@ -20,18 +20,84 @@ const SBD_RESERVE   = Number(process.env.SBD_RESERVE   || 0);
 const BLURT_RESERVE = Number(process.env.BLURT_RESERVE || 0);
 
 // ---------------- CLIENTS ----------------
-const hiveClient  = new HiveClient(process.env.HIVE_RPC);
-const steemClient = new dsteem.Client(process.env.STEEM_RPC);
-const blurtClient = new dblurt.Client(process.env.BLURT_RPC);
+const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1000;
+const RETRY_MAX_DELAY_MS = 15000;
+
+function splitListValue(value) {
+  return value
+    ?.split(",")
+    .map(e => e.trim())
+    .filter(Boolean) || [];
+}
+
+function getEnvList(name, fallback = []) {
+  const list = splitListValue(process.env[name]);
+  return list.length ? list : fallback;
+}
+
+function formatError(err) {
+  const status = err?.response?.status;
+  const statusText = err?.response?.statusText;
+  if (status) return `HTTP ${status}${statusText ? ` ${statusText}` : ""}`;
+  return err?.message || String(err);
+}
+
+function isRetryableError(err) {
+  const status = err?.response?.status;
+  if (status && status >= 500) return true;
+
+  const code = err?.code;
+  if (code && ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"].includes(code))
+    return true;
+
+  const msg = (err?.message || "").toLowerCase();
+  return (
+    msg.includes("status code 5") ||
+    msg.includes("service unavailable") ||
+    msg.includes("socket hang up") ||
+    msg.includes("network error")
+  );
+}
+
+async function retryAsync(fn, label, options = {}) {
+  const maxAttempts = options.maxAttempts || RETRY_MAX_ATTEMPTS;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isRetryableError(err) || attempt === maxAttempts) throw err;
+      if (options.onRetry) options.onRetry(err, attempt);
+
+      const jitter = Math.floor(Math.random() * 250);
+      const delayMs = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1)) + jitter;
+      console.warn(`${label} failed (${formatError(err)}). retrying in ${delayMs}ms (${attempt}/${maxAttempts})`);
+      await delay(delayMs);
+    }
+  }
+}
+
+const HIVE_RPCS = getEnvList("HIVE_RPC");
+const STEEM_RPCS = getEnvList("STEEM_RPC");
+const BLURT_RPCS = getEnvList("BLURT_RPC");
+const ENGINE_APIS = getEnvList("ENGINE_API", [ENGINE_API_DEFAULT]);
+
+const hiveClient = new HiveClient(HIVE_RPCS.length ? HIVE_RPCS : process.env.HIVE_RPC);
+let steemRpcIndex = 0;
+let steemClient = new dsteem.Client(STEEM_RPCS[steemRpcIndex] || process.env.STEEM_RPC);
+const blurtClient = new dblurt.Client(BLURT_RPCS.length ? BLURT_RPCS : process.env.BLURT_RPC);
+
+function rotateSteemRpc() {
+  if (STEEM_RPCS.length <= 1) return;
+  steemRpcIndex = (steemRpcIndex + 1) % STEEM_RPCS.length;
+  steemClient = new dsteem.Client(STEEM_RPCS[steemRpcIndex]);
+}
 
 // ---------------- UTILS ----------------
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
 function splitList(env) {
-  return process.env[env]
-    ?.split(",")
-    .map(e => e.trim())
-    .filter(Boolean) || [];
+  return splitListValue(process.env[env]);
 }
 
 // ---------------- PARSERS ----------------
@@ -61,7 +127,7 @@ const BLURT_ACCOUNTS = parseSimpleAccounts("BLURT_ACCOUNTS");
 
 // ---------------- HIVE ENGINE ----------------
 async function getEngineBalances(account) {
-  const res = await axios.post(ENGINE_API, {
+  const payload = {
     jsonrpc: "2.0",
     method: "find",
     params: {
@@ -71,8 +137,23 @@ async function getEngineBalances(account) {
       limit: 1000
     },
     id: 1
-  });
-  return res.data.result || [];
+  };
+
+  let lastErr;
+  for (const url of ENGINE_APIS) {
+    try {
+      const res = await retryAsync(
+        () => axios.post(url, payload),
+        `Hive Engine ${url}`
+      );
+      return res.data.result || [];
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableError(err)) throw err;
+    }
+  }
+
+  throw lastErr;
 }
 
 function buildEngineQueue(tokens, dest) {
@@ -136,7 +217,10 @@ async function processEngineQueue(account, key, queue) {
 
 // ---------------- BALANCE FETCHERS ----------------
 async function getHiveBalances(name) {
-  const [acc] = await hiveClient.database.getAccounts([name]);
+  const [acc] = await retryAsync(
+    () => hiveClient.database.getAccounts([name]),
+    `Hive getAccounts ${name}`
+  );
   return {
     hive: parseFloat(acc.balance),
     hbd: parseFloat(acc.hbd_balance)
@@ -144,7 +228,11 @@ async function getHiveBalances(name) {
 }
 
 async function getSteemBalances(name) {
-  const [acc] = await steemClient.database.getAccounts([name]);
+  const [acc] = await retryAsync(
+    () => steemClient.database.getAccounts([name]),
+    `Steem getAccounts ${name}`,
+    { onRetry: rotateSteemRpc }
+  );
   return {
     steem: parseFloat(acc.balance),
     sbd: parseFloat(acc.sbd_balance)
@@ -152,7 +240,10 @@ async function getSteemBalances(name) {
 }
 
 async function getBlurtBalances(name) {
-  const [acc] = await blurtClient.database.getAccounts([name]);
+  const [acc] = await retryAsync(
+    () => blurtClient.database.getAccounts([name]),
+    `Blurt getAccounts ${name}`
+  );
   return {
     blurt: parseFloat(acc.balance)
   };
@@ -177,8 +268,8 @@ async function hiveWorker({ name, key, modes }) {
   console.log(`Hive worker started: ${name}`);
 
   while (true) {
-    try {
-      if (modes.has("hive")) {
+    if (modes.has("hive")) {
+      try {
         const { hive, hbd } = await getHiveBalances(name);
 
         if (hive > HIVE_RESERVE)
@@ -200,16 +291,19 @@ async function hiveWorker({ name, key, modes }) {
             hbd - HBD_RESERVE,
             "HBD"
           );
+      } catch (e) {
+        console.error(`HIVE ${name} native:`, formatError(e));
       }
+    }
 
-      if (modes.has("hivetoken")) {
+    if (modes.has("hivetoken")) {
+      try {
         const tokens = await getEngineBalances(name);
         const queue = buildEngineQueue(tokens, process.env.DEST_HIVE_TOKENS);
         if (queue.length) await processEngineQueue(name, pk, queue);
+      } catch (e) {
+        console.error(`HIVE ${name} tokens:`, formatError(e));
       }
-
-    } catch (e) {
-      console.error(`HIVE ${name}:`, e.message);
     }
 
     await delay(MAIN_LOOP_DELAY);
@@ -245,7 +339,7 @@ async function steemWorker({ name, key }) {
         );
 
     } catch (e) {
-      console.error(`STEEM ${name}:`, e.message);
+      console.error(`STEEM ${name}:`, formatError(e));
     }
 
     await delay(MAIN_LOOP_DELAY);
@@ -271,7 +365,7 @@ async function blurtWorker({ name, key }) {
         );
 
     } catch (e) {
-      console.error(`BLURT ${name}:`, e.message);
+      console.error(`BLURT ${name}:`, formatError(e));
     }
 
     await delay(MAIN_LOOP_DELAY);
