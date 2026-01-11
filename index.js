@@ -305,17 +305,19 @@ async function hiveEngineWorker({ name, key }) {
       }
       const tokens = await getEngineBalances(name);
       if (!tokens.length) {
-        console.log(`HIVE ${name} tokens: no balances found`);
+        console.log(`HIVE ENGINE ${name} tokens: no balances found`);
       } else {
-        const summary = tokens
-          .map(t => {
-            const liquid = Number(t.balance || 0);
-            const stake = Number(t.stake || 0);
-            const pending = Number(t.pendingUnstake || 0);
-            return `${t.symbol}=${liquid.toFixed(3)} staked=${stake.toFixed(3)} pending=${pending.toFixed(3)}`;
-          })
-          .join(" | ");
-        console.log(`HIVE ENGINE ${name} tokens: ${summary}`);
+        console.log(`HIVE ENGINE ${name} tokens:`);
+        for (const t of tokens) {
+          const liquid = Number(t.balance || 0);
+          const stake = Number(t.stake || 0);
+          const pending = Number(t.pendingUnstake || 0);
+          const symbol = String(t.symbol || "").padEnd(10);
+          const liq = liquid.toFixed(3).padStart(12);
+          const stk = stake.toFixed(3).padStart(12);
+          const pen = pending.toFixed(3).padStart(12);
+          console.log(`  ${symbol} liquid=${liq} staked=${stk} pending=${pen}`);
+        }
       }
       const queue = buildEngineQueue(tokens, process.env.DEST_HIVE_TOKENS);
       console.log(`HIVE ENGINE ${name} tokens: found ${tokens.length} balances, queued ${queue.length} ops`);
