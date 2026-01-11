@@ -292,8 +292,12 @@ async function hiveEngineWorker({ name, key }) {
 
   while (true) {
     try {
+      if (!process.env.DEST_HIVE_TOKENS) {
+        console.warn(`HIVE ${name} tokens: DEST_HIVE_TOKENS not set`);
+      }
       const tokens = await getEngineBalances(name);
       const queue = buildEngineQueue(tokens, process.env.DEST_HIVE_TOKENS);
+      console.log(`HIVE ${name} tokens: found ${tokens.length} balances, queued ${queue.length} ops`);
       if (queue.length) await processEngineQueue(name, pk, queue);
     } catch (e) {
       console.error(`HIVE ${name} tokens:`, formatError(e));
